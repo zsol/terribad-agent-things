@@ -1,0 +1,2 @@
+- UNLESS you have been ASKED to implement or fix something PREFER debugging and presenting the situation to the user BEFORE changing the code
+- Always check for a jj (Jujutsu) repository before falling back to git commands

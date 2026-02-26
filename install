@@ -1,0 +1,112 @@
+#!/bin/bash
+set -e
+
+FORCE=0
+GLOBAL=0
+for arg in "$@"; do
+    case "$arg" in
+        --force|-f) FORCE=1 ;;
+        --global|-g) GLOBAL=1 ;;
+    esac
+done
+
+# Determine pi agent directory (respects PI_CODING_AGENT_DIR env var)
+PI_DIR="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
+
+# Expand tilde if present
+PI_DIR="${PI_DIR/#\~/$HOME}"
+
+# Get the directory where this script lives
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+echo "Installing pi-plugins symlinks..."
+echo "  Source: $SCRIPT_DIR"
+echo "  Target: $PI_DIR"
+
+# Create pi agent directory if it doesn't exist
+mkdir -p "$PI_DIR"
+
+# Directories to symlink
+DIRS=(extensions prompts skills agents)
+
+for dir in "${DIRS[@]}"; do
+    src="$SCRIPT_DIR/$dir"
+    dst="$PI_DIR/$dir"
+
+    if [[ ! -d "$src" ]]; then
+        echo "  Skipping $dir/ (not found)"
+        continue
+    fi
+
+    if [[ -L "$dst" ]]; then
+        # Already a symlink - check if it points to the right place
+        existing="$(readlink "$dst")"
+        if [[ "$existing" == "$src" ]]; then
+            echo "  $dir/ already linked"
+        elif [[ $FORCE -eq 1 ]]; then
+            rm "$dst"
+            ln -s "$src" "$dst"
+            echo "  $dir/ -> relinked (was: $existing)"
+        else
+            echo "  $dir/ symlink exists but points elsewhere: $existing"
+            echo "    Run with --force to overwrite"
+        fi
+    elif [[ -e "$dst" ]]; then
+        if [[ $FORCE -eq 1 ]]; then
+            rm -rf "$dst"
+            ln -s "$src" "$dst"
+            echo "  $dir/ -> linked (removed existing)"
+        else
+            echo "  $dir/ exists and is not a symlink"
+            echo "    Back it up and run with --force to overwrite"
+        fi
+    else
+        ln -s "$src" "$dst"
+        echo "  $dir/ -> linked"
+    fi
+done
+
+# Global files (opt-in with --global)
+if [[ $GLOBAL -eq 1 ]]; then
+    GLOBAL_FILES=(global/AGENTS.md:AGENTS.md)
+
+    for entry in "${GLOBAL_FILES[@]}"; do
+        src_rel="${entry%%:*}"
+        dst_rel="${entry##*:}"
+        src="$SCRIPT_DIR/$src_rel"
+        dst="$PI_DIR/$dst_rel"
+
+        if [[ ! -f "$src" ]]; then
+            echo "  Skipping $dst_rel (not found: $src_rel)"
+            continue
+        fi
+
+        if [[ -L "$dst" ]]; then
+            existing="$(readlink "$dst")"
+            if [[ "$existing" == "$src" ]]; then
+                echo "  $dst_rel already linked"
+            elif [[ $FORCE -eq 1 ]]; then
+                rm "$dst"
+                ln -s "$src" "$dst"
+                echo "  $dst_rel -> relinked (was: $existing)"
+            else
+                echo "  $dst_rel symlink exists but points elsewhere: $existing"
+                echo "    Run with --force to overwrite"
+            fi
+        elif [[ -e "$dst" ]]; then
+            if [[ $FORCE -eq 1 ]]; then
+                rm -f "$dst"
+                ln -s "$src" "$dst"
+                echo "  $dst_rel -> linked (removed existing)"
+            else
+                echo "  $dst_rel exists and is not a symlink"
+                echo "    Back it up and run with --force to overwrite"
+            fi
+        else
+            ln -s "$src" "$dst"
+            echo "  $dst_rel -> linked"
+        fi
+    done
+fi
+
+echo "Done."
