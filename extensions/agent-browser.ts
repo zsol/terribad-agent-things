@@ -101,10 +101,48 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 			}
 
 			const action = result.details?.action ?? "done";
-			const prefix = theme.fg("success", `✓ ${action}`);
+			const title = result.details?.title;
+			const summary = title ? `${action} — ${title}` : action;
+			const prefix = theme.fg("success", `✓ ${summary}`);
 
 			if (expanded) {
-				const body = result.content?.find((c: any) => c.type === "text")?.text ?? "(no output)";
+				const snapshot: string | null = result.details?.snapshot ?? null;
+				const refs: Record<string, { role: string }> | null = result.details?.refs ?? null;
+
+				const lines: string[] = [];
+
+				// Headings from snapshot ARIA tree, with first-N-lines fallback
+				if (snapshot) {
+					const headings = snapshot
+						.split("\n")
+						.filter((line) => /heading "/.test(line))
+						.map((line) => line.match(/heading "([^"]+)"/)?.[1] ?? "")
+						.filter(Boolean);
+
+					if (headings.length > 0) {
+						lines.push(...headings.map((h) => `  ${h}`));
+					} else {
+						lines.push(...snapshot.split("\n").slice(0, 10));
+					}
+				}
+
+				// Ref type summary
+				if (refs) {
+					const counts: Record<string, number> = {};
+					for (const { role } of Object.values(refs)) {
+						counts[role] = (counts[role] ?? 0) + 1;
+					}
+					const refSummary = Object.entries(counts)
+						.sort((a, b) => b[1] - a[1])
+						.map(([role, count]) => `${count} ${role}${count !== 1 ? "s" : ""}`)
+						.join(" · ");
+					if (refSummary) lines.push(refSummary);
+				}
+
+				const body = lines.length > 0
+					? lines.join("\n")
+					: result.content?.find((c: any) => c.type === "text")?.text ?? "(no output)";
+
 				return new Text(`${prefix}\n${theme.fg("dim", body)}`, 0, 0);
 			}
 
@@ -223,7 +261,15 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 
 			return {
 				content: [{ type: "text", text: finalText }],
-				details: { command, action, parsed: !!parsed, truncated: truncation.truncated },
+				details: {
+					command,
+					action,
+					parsed: !!parsed,
+					truncated: truncation.truncated,
+					title: parsed?.data?.title ?? null,
+					snapshot: parsed?.data?.snapshot ?? null,
+					refs: parsed?.data?.refs ?? null,
+				},
 			};
 		},
 	});
