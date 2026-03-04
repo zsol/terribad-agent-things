@@ -26,7 +26,7 @@ Respects `PI_CODING_AGENT_DIR` environment variable (defaults to `~/.pi/agent`).
 
 | Extension | Description |
 |-----------|-------------|
-| `agent-browser` | Browser automation via the `agent-browser` CLI |
+| `agent-browser` | Browser automation via the `agent-browser` CLI, with defuddled markdown output by default |
 | `answer` | `/answer` command — extract questions from assistant messages into interactive Q&A |
 | `ask-user` | `ask_user` tool — lets the model ask you questions interactively |
 | `control` | Session control tools (`send_to_session`, `list_sessions`) |

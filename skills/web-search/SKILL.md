@@ -33,7 +33,7 @@ browser: open https://kagi.com/search?q=your+search+query
 browser: snapshot
 ```
 
-Results include titles, URLs, and snippets. The first result is usually the most relevant.
+By default, `snapshot` returns defuddled markdown for easier reading. Results include titles, URLs, and snippets. The first result is usually the most relevant.
 
 ### 4. Navigate to a result
 
@@ -42,10 +42,10 @@ browser: open https://example.com/the-result-url
 browser: snapshot
 ```
 
-Or use an interactive snapshot to click a link:
+Or use an interactive snapshot to click a link. For `@eN` refs, call `browser` with `output: "structure"`:
 
 ```
-browser: snapshot -i
+browser: snapshot -i   # output: "structure"
 browser: click @eN
 browser: snapshot
 ```
@@ -54,7 +54,10 @@ browser: snapshot
 
 - **Include the current year** in queries about current information (e.g. `best+python+libraries+2026`) to avoid outdated results.
 - **Encode queries in the URL** — it's faster than typing into a form.
-- **Use `snapshot`** (non-interactive) to read page text; add `-i` when you need to click elements.
+- **Use `snapshot`** (non-interactive) to read page text (defuddled markdown by default).
+- **Use `output: "structure"` with interactive snapshots** when you need `@eN` refs for `click`, `type`, etc.
 - **Scroll for more results**: `browser: scroll down` then `browser: snapshot`.
 - **For code/docs searches**, append `site:docs.example.com` to narrow results.
 - **Screenshots**: use `browser: screenshot` to capture the visual state if helpful.
+- **Defuddle fallback**: markdown snapshots use local `defuddle` first, then `bunx defuddle@0.8.0` as fallback.
+- **Install globally for speed**: `npm install -g defuddle` avoids first-run bunx download overhead.
