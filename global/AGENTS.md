@@ -6,7 +6,7 @@
 
 When spawning subagents, always check the available agents in `~/.pi/agent/agents/` and pick the most appropriate one:
 
-- **scout** - Fast codebase recon (cheap haiku model)
+- **scout** - Fast codebase recon (sonnet model)
 - **researcher** - Deep investigation of topics, APIs, patterns
 - **planner** - Creates implementation plans from context
 - **reviewer** - Code review for quality and security

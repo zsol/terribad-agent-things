@@ -58,7 +58,7 @@ Respects `PI_CODING_AGENT_DIR` environment variable (defaults to `~/.pi/agent`).
 
 | Agent | Description |
 |-------|-------------|
-| `scout` | Fast codebase recon (cheap haiku model) |
+| `scout` | Fast codebase recon (sonnet model) |
 | `researcher` | Deep investigation of topics, APIs, patterns |
 | `planner` | Creates implementation plans from context |
 | `reviewer` | Code review for quality and security |
