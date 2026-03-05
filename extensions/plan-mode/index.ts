@@ -230,7 +230,7 @@ IMPORTANT: After completing each step, you MUST include a [DONE:n] tag (e.g., [D
 		if (markedCount === 0 && remaining.length > 0) {
 			// Check if assistant used tools (likely did work)
 			const usedTools = event.message.content.some(
-				(block) => block.type === "tool_use",
+				(block) => block.type === "toolCall",
 			);
 			if (usedTools) {
 				pi.sendMessage(
