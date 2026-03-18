@@ -543,6 +543,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "ty_check",
     label: "ty Check",
+    promptSnippet: "Run ty Python type checker on files or directories. Returns structured diagnostics with file, line, column, severity, rule, and message.",
     description: `Run ty Python type checker on files or directories.
 
 Returns structured diagnostics with file, line, column, severity, rule, and message.
@@ -662,6 +663,7 @@ For detailed usage guidance, read the ty skill first.`,
   pi.registerTool({
     name: "ty_goto",
     label: "ty Go to Definition",
+    promptSnippet: "Find the definition of a symbol at a given location in a Python file.",
     description: `Find the definition of a symbol at a given location in a Python file.
 
 Use this to navigate to where a class, function, variable, or import is defined.
@@ -744,6 +746,7 @@ For detailed usage guidance including how to find column numbers, read the ty sk
   pi.registerTool({
     name: "ty_references",
     label: "ty Find References",
+    promptSnippet: "Find all references to a symbol at a given location in a Python file.",
     description: `Find all references to a symbol at a given location in a Python file.
 
 Use this to find everywhere a class, function, variable, or import is used.
@@ -829,6 +832,7 @@ For detailed usage guidance including how to find column numbers, read the ty sk
   pi.registerTool({
     name: "ty_hover",
     label: "ty Hover",
+    promptSnippet: "Get type information and documentation for a symbol at a given location.",
     description: `Get type information and documentation for a symbol at a given location.
 
 Use this to see:

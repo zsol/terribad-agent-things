@@ -250,6 +250,7 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "browser",
 		label: "Browser",
+		promptSnippet: "Browser automation via trusted agent-browser CLI (vercel-labs/agent-browser). Open URLs, take snapshots, interact with elements, and take screenshots.",
 		description: TOOL_DESCRIPTION,
 		parameters: Type.Object({
 			command: Type.String({ description: "agent-browser command (without the 'agent-browser' prefix)" }),

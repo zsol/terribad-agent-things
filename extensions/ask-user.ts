@@ -33,6 +33,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "ask_user",
     label: "Ask User",
+    promptSnippet: "Ask the user a question and wait for their response. Use type=\"select\" for multiple choice, \"confirm\" for yes/no, \"input\" for free text, \"multiline\" for multi-line text.",
     description: `Ask the user a question and wait for their response.
 
 IMPORTANT: When there are multiple viable approaches and the user hasn't specified which to use, ASK rather than assuming. Don't make arbitrary decisions on their behalf.

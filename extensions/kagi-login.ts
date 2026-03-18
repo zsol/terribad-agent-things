@@ -86,6 +86,7 @@ export default function kagiLoginExtension(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "kagi_login",
 		label: "Kagi Login",
+		promptSnippet: "Log in to Kagi search using the private session URL stored in 1Password. Call this once before performing any Kagi searches.",
 		description:
 			"Log in to Kagi search using the private session URL stored in 1Password. " +
 			"Call this once before performing any Kagi searches. " +

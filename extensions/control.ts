@@ -1163,6 +1163,7 @@ function registerSessionTool(pi: ExtensionAPI, state: SocketState): void {
 	pi.registerTool({
 		name: "send_to_session",
 		label: "Send To Session",
+		promptSnippet: "Interact with another running pi session via its control socket. Send messages, get responses, get summaries, or clear sessions.",
 		description: `Interact with another running pi session via its control socket.
 
 Actions:
@@ -1552,6 +1553,7 @@ function registerListSessionsTool(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "list_sessions",
 		label: "List Sessions",
+		promptSnippet: "List live sessions that expose a control socket (optionally with session names).",
 		description: "List live sessions that expose a control socket (optionally with session names).",
 		parameters: Type.Object({}),
 		async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
