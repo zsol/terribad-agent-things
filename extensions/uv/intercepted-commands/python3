@@ -1,50 +1,80 @@
 #!/bin/bash
 
-# Check for disallowed module invocations
-for arg in "$@"; do
+args=("$@")
+use_no_project=1
+
+block_pip() {
+    echo "Error: 'python3 -m pip' is disabled. Use uv instead:" >&2
+    echo "" >&2
+    echo "  To install a package for a script: uv run --with PACKAGE python script.py" >&2
+    echo "  To add a dependency to the project: uv add PACKAGE" >&2
+    echo "" >&2
+    exit 1
+}
+
+block_venv() {
+    echo "Error: 'python3 -m venv' is disabled. Use uv instead:" >&2
+    echo "" >&2
+    echo "  To create a virtual environment: uv venv" >&2
+    echo "" >&2
+    exit 1
+}
+
+# Use --no-project for interpreter, module, stdin, and REPL-style invocations
+# so they don't accidentally run in the ambient project in the current cwd.
+# Keep the current behavior for explicit script paths.
+while [ $# -gt 0 ]; do
+    arg="$1"
     case "$arg" in
-        -mpip|-m\ pip|pip)
-            echo "Error: 'python3 -m pip' is disabled. Use uv instead:" >&2
-            echo "" >&2
-            echo "  To install a package for a script: uv run --with PACKAGE python script.py" >&2
-            echo "  To add a dependency to the project: uv add PACKAGE" >&2
-            echo "" >&2
-            exit 1
+        -mpip)
+            block_pip
             ;;
-        -mvenv|-m\ venv|venv)
-            echo "Error: 'python3 -m venv' is disabled. Use uv instead:" >&2
-            echo "" >&2
-            echo "  To create a virtual environment: uv venv" >&2
-            echo "" >&2
-            exit 1
+        -mvenv)
+            block_venv
+            ;;
+        -m)
+            shift
+            case "$1" in
+                pip)
+                    block_pip
+                    ;;
+                venv)
+                    block_venv
+                    ;;
+            esac
+            use_no_project=1
+            break
+            ;;
+        -c|-)
+            use_no_project=1
+            break
+            ;;
+        -h|-?|-V|--help|--version|--help-env|--help-xoptions|--help-all)
+            use_no_project=1
+            break
+            ;;
+        -W|-X|--check-hash-based-pycs)
+            shift
+            ;;
+        --)
+            shift
+            if [ $# -gt 0 ]; then
+                use_no_project=0
+            fi
+            break
+            ;;
+        -*)
+            ;;
+        *)
+            use_no_project=0
+            break
             ;;
     esac
+    shift
 done
 
-# Check for -m flag followed by pip or venv
-prev=""
-for arg in "$@"; do
-    if [ "$prev" = "-m" ]; then
-        case "$arg" in
-            pip)
-                echo "Error: 'python3 -m pip' is disabled. Use uv instead:" >&2
-                echo "" >&2
-                echo "  To install a package for a script: uv run --with PACKAGE python script.py" >&2
-                echo "  To add a dependency to the project: uv add PACKAGE" >&2
-                echo "" >&2
-                exit 1
-                ;;
-            venv)
-                echo "Error: 'python3 -m venv' is disabled. Use uv instead:" >&2
-                echo "" >&2
-                echo "  To create a virtual environment: uv venv" >&2
-                echo "" >&2
-                exit 1
-                ;;
-        esac
-    fi
-    prev="$arg"
-done
+if [ "$use_no_project" -eq 1 ]; then
+    exec uv run --no-project python "${args[@]}"
+fi
 
-# Dispatch to uv run python
-exec uv run python "$@"
+exec uv run python "${args[@]}"
