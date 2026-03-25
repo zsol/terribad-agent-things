@@ -79,8 +79,21 @@ const formatNotification = (text: string | null): { title: string; body: string 
 	return { title: "π", body };
 };
 
+function shouldSendDesktopNotification(): boolean {
+	const args = process.argv.slice(2);
+	if (!process.stdout.isTTY || !process.stdin.isTTY) return false;
+	if (args.includes("--print") || args.includes("-p")) return false;
+	const modeIndex = args.findIndex((arg) => arg === "--mode");
+	if (modeIndex !== -1) {
+		const mode = args[modeIndex + 1];
+		if (mode === "json" || mode === "rpc") return false;
+	}
+	return true;
+}
+
 export default function (pi: ExtensionAPI) {
 	pi.on("agent_end", async (event) => {
+		if (!shouldSendDesktopNotification()) return;
 		const lastText = extractLastAssistantText(event.messages ?? []);
 		const { title, body } = formatNotification(lastText);
 		notify(title, body);
