@@ -34,7 +34,6 @@ Respects `PI_CODING_AGENT_DIR` environment variable (defaults to `~/.pi/agent`).
 | `kagi-login` | `kagi_login` tool — authenticates the browser with Kagi for web search |
 | `loop` | `/loop` command — run the agent in a loop until a condition is met |
 | `notify` | System notifications on turn end |
-| `plan-mode` | `/plan` command — read-only exploration mode with plan tracking |
 | `review` | `/review` command — code review for PRs, branches, or uncommitted changes |
 | `subagent` | `subagent` tool — delegate tasks to specialized agents in parallel or chains |
 | `todos` | `todo` tool and `/todos` command — file-based task management |
