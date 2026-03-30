@@ -610,7 +610,7 @@ For detailed usage guidance, read the ty skill first.`,
     renderCall(args: TyCheckInput, theme) {
       let text = theme.fg("toolTitle", theme.bold("ty_check "));
       if (args.path) {
-        text += theme.fg("path", args.path);
+        text += theme.fg("accent", args.path);
       } else {
         text += theme.fg("muted", "(project)");
       }
@@ -647,7 +647,7 @@ For detailed usage guidance, read the ty skill first.`,
         for (const d of diagnostics) {
           const severityColor = d.severity === "error" ? "error" : "warning";
           text += "\n  ";
-          text += theme.fg("path", `${d.file}:${d.line}:${d.column}`);
+          text += theme.fg("accent", `${d.file}:${d.line}:${d.column}`);
           text += " ";
           text += theme.fg(severityColor, `[${d.rule}]`);
           text += " ";
@@ -711,7 +711,7 @@ For detailed usage guidance including how to find column numbers, read the ty sk
     renderCall(args: LocationInput, theme) {
       const cleanPath = args.file.startsWith("@") ? args.file.slice(1) : args.file;
       let text = theme.fg("toolTitle", theme.bold("ty_goto "));
-      text += theme.fg("path", `${cleanPath}:${args.line}:${args.column}`);
+      text += theme.fg("accent", `${cleanPath}:${args.line}:${args.column}`);
       return new Text(text, 0, 0);
     },
 
@@ -731,7 +731,7 @@ For detailed usage guidance including how to find column numbers, read the ty sk
       if (expanded) {
         for (const loc of locations) {
           text += "\n  ";
-          text += theme.fg("path", `${loc.file}:${loc.line}:${loc.column}`);
+          text += theme.fg("accent", `${loc.file}:${loc.line}:${loc.column}`);
           if (loc.preview) {
             text += "\n    " + theme.fg("dim", loc.preview);
           }
@@ -797,7 +797,7 @@ For detailed usage guidance including how to find column numbers, read the ty sk
     renderCall(args: ReferencesInput, theme) {
       const cleanPath = args.file.startsWith("@") ? args.file.slice(1) : args.file;
       let text = theme.fg("toolTitle", theme.bold("ty_references "));
-      text += theme.fg("path", `${cleanPath}:${args.line}:${args.column}`);
+      text += theme.fg("accent", `${cleanPath}:${args.line}:${args.column}`);
       return new Text(text, 0, 0);
     },
 
@@ -817,7 +817,7 @@ For detailed usage guidance including how to find column numbers, read the ty sk
       if (expanded) {
         for (const loc of locations) {
           text += "\n  ";
-          text += theme.fg("path", `${loc.file}:${loc.line}:${loc.column}`);
+          text += theme.fg("accent", `${loc.file}:${loc.line}:${loc.column}`);
           if (loc.preview) {
             text += "\n    " + theme.fg("dim", loc.preview);
           }
@@ -893,7 +893,7 @@ For detailed usage guidance including how to find column numbers, read the ty sk
     renderCall(args: LocationInput, theme) {
       const cleanPath = args.file.startsWith("@") ? args.file.slice(1) : args.file;
       let text = theme.fg("toolTitle", theme.bold("ty_hover "));
-      text += theme.fg("path", `${cleanPath}:${args.line}:${args.column}`);
+      text += theme.fg("accent", `${cleanPath}:${args.line}:${args.column}`);
       return new Text(text, 0, 0);
     },
 

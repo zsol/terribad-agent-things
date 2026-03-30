@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { CustomEditor } from "@mariozechner/pi-coding-agent";
 import path from "node:path";
 import os from "node:os";
+import type { Dirent } from "node:fs";
 import fs from "node:fs/promises";
 
 /**
@@ -105,7 +106,7 @@ async function loadPromptHistoryForCwd(cwd: string, excludeSessionFile?: string)
 	const resolvedExclude = excludeSessionFile ? path.resolve(excludeSessionFile) : undefined;
 	const prompts: PromptEntry[] = [];
 
-	let entries: fs.Dirent[] = [];
+	let entries: Dirent[] = [];
 	try {
 		entries = await fs.readdir(sessionDir, { withFileTypes: true });
 	} catch {

@@ -27,7 +27,7 @@
 
 import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { DynamicBorder, BorderedLoader } from "@mariozechner/pi-coding-agent";
-import { Container, type SelectItem, SelectList, Text, Key } from "@mariozechner/pi-tui";
+import { Container, type SelectItem, SelectList, Text, Key, matchesKey } from "@mariozechner/pi-tui";
 import path from "node:path";
 import { promises as fs } from "node:fs";
 
@@ -623,9 +623,7 @@ export default function reviewExtension(pi: ExtensionAPI) {
 				scrollInfo: (text) => theme.fg("dim", text),
 				noMatch: (text) => theme.fg("warning", text),
 			});
-
-			// Enable search
-			selectList.searchable = true;
+			let filter = "";
 
 			selectList.onSelect = (item) => done(item.value);
 			selectList.onCancel = () => done(null);
@@ -642,6 +640,20 @@ export default function reviewExtension(pi: ExtensionAPI) {
 					container.invalidate();
 				},
 				handleInput(data: string) {
+					if (matchesKey(data, Key.backspace)) {
+						if (filter.length > 0) {
+							filter = filter.slice(0, -1);
+							selectList.setFilter(filter);
+							tui.requestRender();
+						}
+						return;
+					}
+					if (data.length === 1 && data >= " " && data !== "\x7f") {
+						filter += data;
+						selectList.setFilter(filter);
+						tui.requestRender();
+						return;
+					}
 					selectList.handleInput(data);
 					tui.requestRender();
 				},
@@ -681,9 +693,7 @@ export default function reviewExtension(pi: ExtensionAPI) {
 				scrollInfo: (text) => theme.fg("dim", text),
 				noMatch: (text) => theme.fg("warning", text),
 			});
-
-			// Enable search
-			selectList.searchable = true;
+			let filter = "";
 
 			selectList.onSelect = (item) => {
 				const commit = commits.find((c) => c.sha === item.value);
@@ -707,6 +717,20 @@ export default function reviewExtension(pi: ExtensionAPI) {
 					container.invalidate();
 				},
 				handleInput(data: string) {
+					if (matchesKey(data, Key.backspace)) {
+						if (filter.length > 0) {
+							filter = filter.slice(0, -1);
+							selectList.setFilter(filter);
+							tui.requestRender();
+						}
+						return;
+					}
+					if (data.length === 1 && data >= " " && data !== "\x7f") {
+						filter += data;
+						selectList.setFilter(filter);
+						tui.requestRender();
+						return;
+					}
 					selectList.handleInput(data);
 					tui.requestRender();
 				},

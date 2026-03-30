@@ -78,6 +78,20 @@ function getOutputMode(value: unknown): OutputMode {
 	return OUTPUT_MODES.includes(value as OutputMode) ? (value as OutputMode) : "markdown";
 }
 
+type BrowserRefs = Record<string, { role: string }>;
+
+type BrowserToolDetails = {
+	error?: string;
+	action?: string;
+	title?: string | null;
+	snapshot?: string | null;
+	refs?: BrowserRefs | null;
+};
+
+function getFirstTextContent(content: Array<{ type: string; text?: string }> | undefined): string | undefined {
+	return content?.find((item): item is { type: "text"; text: string } => item.type === "text")?.text;
+}
+
 function toNullableString(value: unknown): string | null {
 	if (typeof value !== "string") return null;
 	const text = value.trim();
@@ -276,28 +290,29 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 			return new Text(text, 0, 0);
 		},
 
-		renderResult(result, { isPartial, expanded }, theme) {
+		renderResult(result, { isPartial, expanded }, theme, context) {
+			const details = (result.details ?? undefined) as BrowserToolDetails | undefined;
+			const textOutput = getFirstTextContent(result.content);
+
 			if (isPartial) {
 				return new Text(theme.fg("muted", "running..."), 0, 0);
 			}
 
-			if (result.isError) {
-				const msg = result.details?.error ?? result.content?.find((c: any) => c.type === "text")?.text ?? "error";
+			if (context.isError) {
+				const msg = details?.error ?? textOutput ?? "error";
 				return new Text(theme.fg("error", `✗ ${msg}`), 0, 0);
 			}
 
-			const action = result.details?.action ?? "done";
-			const title = result.details?.title;
+			const action = details?.action ?? "done";
+			const title = details?.title;
 			const summary = title ? `${action} — ${title}` : action;
 			const prefix = theme.fg("success", `✓ ${summary}`);
 
 			if (expanded) {
-				const snapshot: string | null = result.details?.snapshot ?? null;
-				const refs: Record<string, { role: string }> | null = result.details?.refs ?? null;
-
+				const snapshot = details?.snapshot ?? null;
+				const refs = details?.refs ?? null;
 				const lines: string[] = [];
 
-				// Headings from snapshot ARIA tree, with first-N-lines fallback
 				if (snapshot) {
 					const headings = snapshot
 						.split("\n")
@@ -312,7 +327,6 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 					}
 				}
 
-				// Ref type summary
 				if (refs) {
 					const counts: Record<string, number> = {};
 					for (const { role } of Object.values(refs)) {
@@ -325,10 +339,7 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 					if (refSummary) lines.push(refSummary);
 				}
 
-				const body = lines.length > 0
-					? lines.join("\n")
-					: result.content?.find((c: any) => c.type === "text")?.text ?? "(no output)";
-
+				const body = lines.length > 0 ? lines.join("\n") : textOutput ?? "(no output)";
 				return new Text(`${prefix}\n${theme.fg("dim", body)}`, 0, 0);
 			}
 
@@ -455,8 +466,9 @@ export default function agentBrowserExtension(pi: ExtensionAPI) {
 					snapshot = null;
 				} else {
 					effectiveOutputMode = "structure";
-					defuddleError = defuddled.error;
-					textOutput = `${defuddled.error}\n\n${textOutput}`;
+					const error = "error" in defuddled ? defuddled.error : "defuddle conversion failed";
+					defuddleError = error;
+					textOutput = `${error}\n\n${textOutput}`;
 				}
 			}
 

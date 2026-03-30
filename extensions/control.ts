@@ -36,7 +36,7 @@
  *   Events are JSON objects with { type: "event", event, data?, subscriptionId? }
  */
 
-import type { ExtensionAPI, ExtensionContext, TurnEndEvent, MessageRenderer, MessageStartEvent, MessageEndEvent, ToolExecutionStartEvent, ToolExecutionEndEvent } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, TurnEndEvent, MessageRenderer } from "@mariozechner/pi-coding-agent";
 import { getMarkdownTheme } from "@mariozechner/pi-coding-agent";
 import { complete, type Model, type Api, type UserMessage, type TextContent } from "@mariozechner/pi-ai";
 import { StringEnum } from "@mariozechner/pi-ai";
@@ -165,19 +165,19 @@ async function selectSummarizationModel(
 	currentModel: Model<Api> | undefined,
 	modelRegistry: {
 		find: (provider: string, modelId: string) => Model<Api> | undefined;
-		getApiKey: (model: Model<Api>) => Promise<string | undefined>;
+		getApiKeyAndHeaders: (model: Model<Api>) => Promise<{ ok: boolean }>;
 	},
 ): Promise<Model<Api> | undefined> {
 	const codexModel = modelRegistry.find("openai-codex", CODEX_MODEL_ID);
 	if (codexModel) {
-		const apiKey = await modelRegistry.getApiKey(codexModel);
-		if (apiKey) return codexModel;
+		const auth = await modelRegistry.getApiKeyAndHeaders(codexModel);
+		if (auth.ok) return codexModel;
 	}
 
 	const haikuModel = modelRegistry.find("anthropic", HAIKU_MODEL_ID);
 	if (haikuModel) {
-		const apiKey = await modelRegistry.getApiKey(haikuModel);
-		if (apiKey) return haikuModel;
+		const auth = await modelRegistry.getApiKeyAndHeaders(haikuModel);
+		if (auth.ok) return haikuModel;
 	}
 
 	return currentModel;
@@ -434,13 +434,11 @@ function getLastAssistantMessage(ctx: ExtensionContext): ExtractedMessage | unde
 		if (entry.type === "message") {
 			const msg = entry.message;
 			if ("role" in msg && msg.role === "assistant") {
-				const textParts = msg.content
-					.filter((c): c is { type: "text"; text: string } => c.type === "text")
-					.map((c) => c.text);
-				if (textParts.length > 0) {
+				const text = extractTextContent(msg.content);
+				if (text) {
 					return {
 						role: "assistant",
-						content: textParts.join("\n"),
+						content: text,
 						timestamp: msg.timestamp,
 					};
 				}
@@ -470,13 +468,11 @@ function getMessagesSinceLastPrompt(ctx: ExtensionContext): ExtractedMessage[] {
 		if (entry.type === "message") {
 			const msg = entry.message;
 			if ("role" in msg && (msg.role === "user" || msg.role === "assistant")) {
-				const textParts = msg.content
-					.filter((c): c is { type: "text"; text: string } => c.type === "text")
-					.map((c) => c.text);
-				if (textParts.length > 0) {
+				const text = extractTextContent(msg.content);
+				if (text) {
 					messages.push({
 						role: msg.role,
-						content: textParts.join("\n"),
+						content: text,
 						timestamp: msg.timestamp,
 					});
 				}
@@ -684,9 +680,14 @@ async function handleCommand(
 			return;
 		}
 
-		const apiKey = await ctx.modelRegistry.getApiKey(model);
-		if (!apiKey) {
-			respond(false, "get_summary", undefined, "No API key available for summarization model");
+		const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+		if (!auth.ok) {
+			respond(
+				false,
+				"get_summary",
+				undefined,
+				"error" in auth ? auth.error : "No auth available for summarization model",
+			);
 			return;
 		}
 
@@ -704,7 +705,7 @@ async function handleCommand(
 			const response = await complete(
 				model,
 				{ systemPrompt: SUMMARIZATION_SYSTEM_PROMPT, messages: [userMessage] },
-				{ apiKey },
+				{ apiKey: auth.apiKey, headers: auth.headers },
 			);
 
 			if (response.stopReason === "aborted" || response.stopReason === "error") {
@@ -803,7 +804,7 @@ async function handleCommand(
 		return;
 	}
 
-	respond(false, command.type, undefined, `Unsupported command: ${command.type}`);
+	respond(false, "unknown", undefined, "Unsupported command");
 }
 
 // ============================================================================
@@ -1094,7 +1095,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	// Fire turn_end events to subscribers (one-shot).
-	pi.on("turn_end", (event: TurnEndEvent, ctx: ExtensionContext) => {
+	pi.on("turn_end", (event, ctx) => {
 		if (state.turnEndSubscriptions.length === 0) return;
 
 		void syncAlias(state, ctx);
@@ -1115,14 +1116,14 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// Forward message lifecycle events to subscribers.
-	pi.on("message_start", (event: MessageStartEvent) => {
+	pi.on("message_start", (event) => {
 		broadcastEvent("message_start", {
 			role: event.message.role,
 			timestamp: Date.now(),
 		});
 	});
 
-	pi.on("message_end", (event: MessageEndEvent) => {
+	pi.on("message_end", (event) => {
 		const msg = event.message;
 		const textParts = ("content" in msg && Array.isArray(msg.content))
 			? (msg.content as Array<{ type: string; text?: string }>)
@@ -1137,7 +1138,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// Forward tool execution lifecycle events to subscribers.
-	pi.on("tool_execution_start", (event: ToolExecutionStartEvent) => {
+	pi.on("tool_execution_start", (event) => {
 		broadcastEvent("tool_execution_start", {
 			toolCallId: event.toolCallId,
 			toolName: event.toolName,
@@ -1145,7 +1146,7 @@ export default function (pi: ExtensionAPI) {
 		});
 	});
 
-	pi.on("tool_execution_end", (event: ToolExecutionEndEvent) => {
+	pi.on("tool_execution_end", (event) => {
 		broadcastEvent("tool_execution_end", {
 			toolCallId: event.toolCallId,
 			toolName: event.toolName,
@@ -1446,13 +1447,13 @@ Messages automatically include sender session info for replies. When you want a 
 			return new Text(header, 0, 0);
 		},
 
-		renderResult(result, { expanded }, theme) {
+		renderResult(result, { expanded }, theme, context) {
 			const details = result.details as Record<string, unknown> | undefined;
-			const isError = result.isError === true;
+			const isError = context.isError === true;
 
 			// Error case
 			if (isError || details?.error) {
-				const errorMsg = (details?.error as string) || result.content[0]?.type === "text" ? (result.content[0] as { type: "text"; text: string }).text : "Unknown error";
+				const errorMsg = (details?.error as string | undefined) ?? (extractTextContent(result.content) || "Unknown error");
 				return new Text(theme.fg("error", "✗ ") + theme.fg("error", errorMsg), 0, 0);
 			}
 

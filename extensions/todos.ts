@@ -1751,7 +1751,7 @@ export default function todosExtension(pi: ExtensionAPI) {
 				return new Text(text, 0, 0);
 			}
 
-			if (!details.todo) {
+			if (!("todo" in details)) {
 				const text = result.content[0];
 				return new Text(text?.type === "text" ? text.text : "", 0, 0);
 			}

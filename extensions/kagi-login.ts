@@ -100,6 +100,7 @@ export default function kagiLoginExtension(pi: ExtensionAPI) {
 			if (!result.success) {
 				return {
 					content: [{ type: "text", text: result.error! }],
+					details: { loggedIn: false, error: result.error },
 					isError: true,
 				};
 			}
