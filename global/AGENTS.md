@@ -17,3 +17,5 @@ Use "worker" only as the fallback when no specialized agent fits better.
 ## Version Control
 
 Always check for a jj (Jujutsu) repository before falling back to git commands. If a `.jj` directory exists, use `jj` commands instead of `git`.
+
+Do not commit, push, merge, open/update PRs, post review comments, or otherwise modify remote state unless the user explicitly asks for that action in the current conversation. If there is any ambiguity, stop and ask the user first.
