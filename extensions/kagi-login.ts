@@ -46,8 +46,7 @@ export default function kagiLoginExtension(pi: ExtensionAPI) {
 	}
 
 	pi.on("session_start", async (_event, ctx) => { restoreFromBranch(ctx); });
-	pi.on("session_tree",  async (_event, ctx) => { restoreFromBranch(ctx); });
-	pi.on("session_fork",  async (_event, ctx) => { restoreFromBranch(ctx); });
+	pi.on("session_tree", async (_event, ctx) => { restoreFromBranch(ctx); });
 
 	async function login(signal?: AbortSignal): Promise<{ success: boolean; error?: string }> {
 		// Fetch the secret URL from 1Password.
