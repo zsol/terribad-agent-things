@@ -41,6 +41,7 @@ import {
 	type Focusable,
 	Input,
 	Key,
+	type KeybindingsManager,
 	Markdown,
 	SelectList,
 	Spacer,
@@ -48,7 +49,6 @@ import {
 	Text,
 	TUI,
 	fuzzyMatch,
-	getKeybindings,
 	matchesKey,
 	truncateToWidth,
 	visibleWidth,
@@ -269,6 +269,7 @@ class TodoSelectorComponent extends Container implements Focusable {
 	constructor(
 		tui: TUI,
 		theme: Theme,
+		private keybindings: KeybindingsManager,
 		todos: TodoFrontMatter[],
 		onSelect: (todo: TodoFrontMatter) => void,
 		onCancel: () => void,
@@ -397,25 +398,24 @@ class TodoSelectorComponent extends Container implements Focusable {
 	}
 
 	handleInput(keyData: string): void {
-		const kb = getKeybindings();
-		if (kb.matches(keyData, "tui.select.up")) {
+		if (this.keybindings.matches(keyData, "tui.select.up")) {
 			if (this.filteredTodos.length === 0) return;
 			this.selectedIndex = this.selectedIndex === 0 ? this.filteredTodos.length - 1 : this.selectedIndex - 1;
 			this.updateList();
 			return;
 		}
-		if (kb.matches(keyData, "tui.select.down")) {
+		if (this.keybindings.matches(keyData, "tui.select.down")) {
 			if (this.filteredTodos.length === 0) return;
 			this.selectedIndex = this.selectedIndex === this.filteredTodos.length - 1 ? 0 : this.selectedIndex + 1;
 			this.updateList();
 			return;
 		}
-		if (kb.matches(keyData, "tui.select.confirm")) {
+		if (this.keybindings.matches(keyData, "tui.select.confirm")) {
 			const selected = this.filteredTodos[this.selectedIndex];
 			if (selected) this.onSelectCallback(selected);
 			return;
 		}
-		if (kb.matches(keyData, "tui.select.cancel")) {
+		if (this.keybindings.matches(keyData, "tui.select.cancel")) {
 			this.onCancelCallback();
 			return;
 		}
@@ -559,7 +559,13 @@ class TodoDetailOverlayComponent {
 	private totalLines = 0;
 	private onAction: (action: TodoOverlayAction) => void;
 
-	constructor(tui: TUI, theme: Theme, todo: TodoRecord, onAction: (action: TodoOverlayAction) => void) {
+	constructor(
+		tui: TUI,
+		theme: Theme,
+		private keybindings: KeybindingsManager,
+		todo: TodoRecord,
+		onAction: (action: TodoOverlayAction) => void,
+	) {
 		this.tui = tui;
 		this.theme = theme;
 		this.todo = todo;
@@ -573,28 +579,27 @@ class TodoDetailOverlayComponent {
 	}
 
 	handleInput(keyData: string): void {
-		const kb = getKeybindings();
-		if (kb.matches(keyData, "tui.select.cancel")) {
+		if (this.keybindings.matches(keyData, "tui.select.cancel")) {
 			this.onAction("back");
 			return;
 		}
-		if (kb.matches(keyData, "tui.select.confirm")) {
+		if (this.keybindings.matches(keyData, "tui.select.confirm")) {
 			this.onAction("work");
 			return;
 		}
-		if (kb.matches(keyData, "tui.select.up")) {
+		if (this.keybindings.matches(keyData, "tui.select.up")) {
 			this.scrollBy(-1);
 			return;
 		}
-		if (kb.matches(keyData, "tui.select.down")) {
+		if (this.keybindings.matches(keyData, "tui.select.down")) {
 			this.scrollBy(1);
 			return;
 		}
-		if (kb.matches(keyData, "tui.select.pageUp")) {
+		if (this.keybindings.matches(keyData, "tui.select.pageUp")) {
 			this.scrollBy(-this.viewHeight || -1);
 			return;
 		}
-		if (kb.matches(keyData, "tui.select.pageDown")) {
+		if (this.keybindings.matches(keyData, "tui.select.pageDown")) {
 			this.scrollBy(this.viewHeight || 1);
 			return;
 		}
@@ -1814,7 +1819,7 @@ export default function todosExtension(pi: ExtensionAPI) {
 
 			let nextPrompt: string | null = null;
 			let rootTui: TUI | null = null;
-			await ctx.ui.custom<void>((tui, theme, _kb, done) => {
+			await ctx.ui.custom<void>((tui, theme, kb, done) => {
 				rootTui = tui;
 				let selector: TodoSelectorComponent | null = null;
 				let actionMenu: TodoActionMenuComponent | null = null;
@@ -1886,8 +1891,8 @@ export default function todosExtension(pi: ExtensionAPI) {
 
 				const openTodoOverlay = async (record: TodoRecord): Promise<TodoOverlayAction> => {
 					const action = await ctx.ui.custom<TodoOverlayAction>(
-						(overlayTui, overlayTheme, _overlayKb, overlayDone) =>
-							new TodoDetailOverlayComponent(overlayTui, overlayTheme, record, overlayDone),
+						(overlayTui, overlayTheme, overlayKb, overlayDone) =>
+							new TodoDetailOverlayComponent(overlayTui, overlayTheme, overlayKb, record, overlayDone),
 						{
 							overlay: true,
 							overlayOptions: { width: "80%", maxHeight: "80%", anchor: "center" },
@@ -2023,6 +2028,7 @@ export default function todosExtension(pi: ExtensionAPI) {
 				selector = new TodoSelectorComponent(
 					tui,
 					theme,
+					kb,
 					todos,
 					(todo) => {
 						void handleSelect(todo);

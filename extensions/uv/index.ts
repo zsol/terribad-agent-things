@@ -16,7 +16,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { createBashTool } from "@mariozechner/pi-coding-agent";
+import { createBashToolDefinition } from "@mariozechner/pi-coding-agent";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 
@@ -25,7 +25,7 @@ const interceptedCommandsPath = join(__dirname, "intercepted-commands");
 
 export default function (pi: ExtensionAPI) {
   const cwd = process.cwd();
-  const bashTool = createBashTool(cwd, {
+  const bashTool = createBashToolDefinition(cwd, {
     commandPrefix: `export PATH="${interceptedCommandsPath}:$PATH"`,
   });
 
