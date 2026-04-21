@@ -1,9 +1,13 @@
 /**
- * This extension stores todo items as files under <todo-dir> (defaults to .pi/todos,
- * or the path in PI_TODO_PATH).  Each todo is a standalone markdown file named
- * <id>.md and an optional <id>.lock file is used while a session is editing it.
+ * This extension stores todo items as files under <todo-dir> (defaults to a
+ * central per-project directory under ~/.pi/agent/todos, or the path in
+ * PI_TODO_PATH). Each todo is a standalone markdown file named <id>.md and an
+ * optional <id>.lock file is used while a session is editing it.
  *
- * File format in .pi/todos:
+ * Legacy project-local .pi/todos directories are migrated automatically the
+ * first time the new central location is used for that project.
+ *
+ * File format in <todo-dir>:
  * - The file starts with a JSON object (not YAML) containing the front matter:
  *   { id, title, tags, status, created_at, assigned_to_session }
  * - After the JSON block comes optional markdown body text separated by a blank line.
@@ -33,8 +37,9 @@ import { DynamicBorder, copyToClipboard, getMarkdownTheme, keyHint, type Extensi
 import { StringEnum } from "@mariozechner/pi-ai";
 import { Type } from "@sinclair/typebox";
 import path from "node:path";
+import os from "node:os";
 import fs from "node:fs/promises";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import crypto from "node:crypto";
 import {
 	Container,
@@ -54,7 +59,8 @@ import {
 	visibleWidth,
 } from "@mariozechner/pi-tui";
 
-const TODO_DIR_NAME = ".pi/todos";
+const LEGACY_TODO_DIR_NAME = ".pi/todos";
+const CENTRAL_TODO_DIR_NAME = "todos";
 const TODO_PATH_ENV = "PI_TODO_PATH";
 const TODO_SETTINGS_NAME = "settings.json";
 const TODO_ID_PREFIX = "TODO-";
@@ -709,20 +715,80 @@ class TodoDetailOverlayComponent {
 	}
 }
 
-function getTodosDir(cwd: string): string {
-	const overridePath = process.env[TODO_PATH_ENV];
-	if (overridePath && overridePath.trim()) {
-		return path.resolve(cwd, overridePath.trim());
+function expandHomePath(filePath: string): string {
+	if (filePath === "~") return os.homedir();
+	if (filePath.startsWith("~/") || filePath.startsWith("~\\")) {
+		return path.join(os.homedir(), filePath.slice(2));
 	}
-	return path.resolve(cwd, TODO_DIR_NAME);
+	return filePath;
+}
+
+function displayPath(filePath: string): string {
+	const home = os.homedir();
+	return filePath.startsWith(home) ? `~${filePath.slice(home.length)}` : filePath;
+}
+
+function resolveTodoOverride(cwd: string): string | undefined {
+	const overridePath = process.env[TODO_PATH_ENV]?.trim();
+	if (!overridePath) return undefined;
+	return path.resolve(cwd, expandHomePath(overridePath));
+}
+
+function getPiAgentDir(): string {
+	const configuredDir = process.env.PI_CODING_AGENT_DIR?.trim();
+	if (configuredDir) {
+		return path.resolve(expandHomePath(configuredDir));
+	}
+	return path.join(os.homedir(), ".pi", "agent");
+}
+
+function getLegacyTodosDir(cwd: string): string {
+	return path.resolve(cwd, LEGACY_TODO_DIR_NAME);
+}
+
+function getCentralTodosRoot(): string {
+	return path.join(getPiAgentDir(), CENTRAL_TODO_DIR_NAME);
+}
+
+function getProjectTodoNamespace(cwd: string): string {
+	const resolvedCwd = path.resolve(cwd);
+	const baseName = path.basename(resolvedCwd) || "root";
+	const safeBaseName = baseName.replace(/[^\w.-]+/g, "_");
+	const hash = crypto.createHash("sha1").update(resolvedCwd).digest("hex").slice(0, 12);
+	return `${safeBaseName}-${hash}`;
+}
+
+function getTodosDir(cwd: string): string {
+	const overridePath = resolveTodoOverride(cwd);
+	if (overridePath) return overridePath;
+	return path.join(getCentralTodosRoot(), getProjectTodoNamespace(cwd));
 }
 
 function getTodosDirLabel(cwd: string): string {
-	const overridePath = process.env[TODO_PATH_ENV];
-	if (overridePath && overridePath.trim()) {
-		return path.resolve(cwd, overridePath.trim());
+	const overridePath = resolveTodoOverride(cwd);
+	if (overridePath) return displayPath(overridePath);
+	return `${displayPath(getCentralTodosRoot())}/<project>`;
+}
+
+async function resolveTodosDir(cwd: string): Promise<string> {
+	const overridePath = resolveTodoOverride(cwd);
+	if (overridePath) return overridePath;
+
+	const todosDir = getTodosDir(cwd);
+	const legacyDir = getLegacyTodosDir(cwd);
+	if (path.resolve(legacyDir) === path.resolve(todosDir)) {
+		return todosDir;
 	}
-	return TODO_DIR_NAME;
+	if (existsSync(legacyDir) && !existsSync(todosDir)) {
+		await fs.mkdir(path.dirname(todosDir), { recursive: true });
+		try {
+			await fs.rename(legacyDir, todosDir);
+		} catch {
+			await fs.cp(legacyDir, todosDir, { recursive: true });
+			await fs.rm(legacyDir, { recursive: true, force: true });
+		}
+	}
+	return todosDir;
 }
 
 function getTodoSettingsPath(todosDir: string): string {
@@ -1046,39 +1112,6 @@ async function listTodos(todosDir: string): Promise<TodoFrontMatter[]> {
 			});
 		} catch {
 			// ignore unreadable todo
-		}
-	}
-
-	return sortTodos(todos);
-}
-
-function listTodosSync(todosDir: string): TodoFrontMatter[] {
-	let entries: string[] = [];
-	try {
-		entries = readdirSync(todosDir);
-	} catch {
-		return [];
-	}
-
-	const todos: TodoFrontMatter[] = [];
-	for (const entry of entries) {
-		if (!entry.endsWith(".md")) continue;
-		const id = entry.slice(0, -3);
-		const filePath = path.join(todosDir, entry);
-		try {
-			const content = readFileSync(filePath, "utf8");
-			const { frontMatter } = splitFrontMatter(content);
-			const parsed = parseFrontMatter(frontMatter, id);
-			todos.push({
-				id,
-				title: parsed.title,
-				tags: parsed.tags ?? [],
-				status: parsed.status,
-				created_at: parsed.created_at,
-				assigned_to_session: parsed.assigned_to_session,
-			});
-		} catch {
-			// ignore
 		}
 	}
 
@@ -1421,7 +1454,7 @@ async function deleteTodo(
 
 export default function todosExtension(pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
-		const todosDir = getTodosDir(ctx.cwd);
+		const todosDir = await resolveTodosDir(ctx.cwd);
 		await ensureTodosDir(todosDir);
 		const settings = await readTodoSettings(todosDir);
 		await garbageCollectTodos(todosDir, settings);
@@ -1434,14 +1467,14 @@ export default function todosExtension(pi: ExtensionAPI) {
 		label: "Todo",
 		promptSnippet: "Manage file-based todos (list, list-all, get, create, update, append, delete, claim, release). Claim tasks before working on them to avoid conflicts, and close them when complete.",
 		description:
-			`Manage file-based todos in ${todosDirLabel} (list, list-all, get, create, update, append, delete, claim, release). ` +
+			`Manage file-based todos in ${todosDirLabel} (central per-project storage by default; list, list-all, get, create, update, append, delete, claim, release). ` +
 			"Title is the short summary; body is long-form markdown notes (update replaces, append adds). " +
 			"Todo ids are shown as TODO-<hex>; id parameters accept TODO-<hex> or the raw hex filename. " +
-			"Claim tasks before working on them to avoid conflicts, and close them when complete.", 
+			"Claim tasks before working on them to avoid conflicts, and close them when complete.",
 		parameters: TodoParams,
 
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const todosDir = getTodosDir(ctx.cwd);
+			const todosDir = await resolveTodosDir(ctx.cwd);
 			const action: TodoAction = params.action;
 
 			switch (action) {
@@ -1789,9 +1822,9 @@ export default function todosExtension(pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("todos", {
-		description: "List todos from .pi/todos",
-		getArgumentCompletions: (argumentPrefix: string) => {
-			const todos = listTodosSync(getTodosDir(process.cwd()));
+		description: "List todos from the central per-project pi todo store",
+		getArgumentCompletions: async (argumentPrefix: string) => {
+			const todos = await listTodos(await resolveTodosDir(process.cwd()));
 			if (!todos.length) return null;
 			const matches = filterTodos(todos, argumentPrefix);
 			if (!matches.length) return null;
@@ -1806,7 +1839,7 @@ export default function todosExtension(pi: ExtensionAPI) {
 			});
 		},
 		handler: async (args, ctx) => {
-			const todosDir = getTodosDir(ctx.cwd);
+			const todosDir = await resolveTodosDir(ctx.cwd);
 			const todos = await listTodos(todosDir);
 			const currentSessionId = ctx.sessionManager.getSessionId();
 			const searchTerm = (args ?? "").trim();
