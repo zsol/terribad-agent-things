@@ -35,6 +35,7 @@ Respects `PI_CODING_AGENT_DIR` environment variable (defaults to `~/.pi/agent`).
 | `loop` | `/loop` command — run the agent in a loop until a condition is met |
 | `notify` | System notifications on turn end |
 | `review` | `/review` command — code review for PRs, branches, or uncommitted changes |
+| `side` | `/side` side conversations — in-memory overlay thread with `/side-back`, `/side:new`, and `/side:clear` |
 | `subagent` | `subagent` tool — delegate tasks to specialized agents in parallel or chains |
 | `todos` | `todo` tool and `/todos` command — file-based task management |
 | `ty` | `ty_check`, `ty_goto`, `ty_references`, `ty_hover` — Python type checking and navigation |
