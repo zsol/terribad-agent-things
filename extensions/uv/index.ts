@@ -22,16 +22,26 @@ import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const interceptedCommandsPath = join(__dirname, "intercepted-commands");
+const commandPrefix = `export PATH="${interceptedCommandsPath}:$PATH"`;
 
 export default function (pi: ExtensionAPI) {
-  const cwd = process.cwd();
-  const bashTool = createBashToolDefinition(cwd, {
-    commandPrefix: `export PATH="${interceptedCommandsPath}:$PATH"`,
-  });
+	const baseBashTool = createBashToolDefinition("/", {
+		commandPrefix,
+	});
 
-  pi.on("session_start", (_event, ctx) => {
-    ctx.ui.notify("UV interceptor loaded", "info");
-  });
+	pi.registerTool({
+		...baseBashTool,
+		execute(toolCallId, params, signal, onUpdate, ctx) {
+			const bashTool = createBashToolDefinition(ctx.cwd, {
+				commandPrefix,
+			});
+			return bashTool.execute(toolCallId, params, signal, onUpdate, ctx);
+		},
+	});
 
-  pi.registerTool(bashTool);
+	pi.on("session_start", (_event, ctx) => {
+		if (ctx.hasUI) {
+			ctx.ui.notify("UV interceptor loaded", "info");
+		}
+	});
 }

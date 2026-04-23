@@ -723,11 +723,6 @@ function expandHomePath(filePath: string): string {
 	return filePath;
 }
 
-function displayPath(filePath: string): string {
-	const home = os.homedir();
-	return filePath.startsWith(home) ? `~${filePath.slice(home.length)}` : filePath;
-}
-
 function resolveTodoOverride(cwd: string): string | undefined {
 	const overridePath = process.env[TODO_PATH_ENV]?.trim();
 	if (!overridePath) return undefined;
@@ -762,12 +757,6 @@ function getTodosDir(cwd: string): string {
 	const overridePath = resolveTodoOverride(cwd);
 	if (overridePath) return overridePath;
 	return path.join(getCentralTodosRoot(), getProjectTodoNamespace(cwd));
-}
-
-function getTodosDirLabel(cwd: string): string {
-	const overridePath = resolveTodoOverride(cwd);
-	if (overridePath) return displayPath(overridePath);
-	return `${displayPath(getCentralTodosRoot())}/<project>`;
 }
 
 async function resolveTodosDir(cwd: string): Promise<string> {
@@ -1453,21 +1442,22 @@ async function deleteTodo(
 }
 
 export default function todosExtension(pi: ExtensionAPI) {
+	let currentCwd: string | undefined;
+
 	pi.on("session_start", async (_event, ctx) => {
+		currentCwd = ctx.cwd;
 		const todosDir = await resolveTodosDir(ctx.cwd);
 		await ensureTodosDir(todosDir);
 		const settings = await readTodoSettings(todosDir);
 		await garbageCollectTodos(todosDir, settings);
 	});
 
-	const todosDirLabel = getTodosDirLabel(process.cwd());
-
 	pi.registerTool({
 		name: "todo",
 		label: "Todo",
 		promptSnippet: "Manage file-based todos (list, list-all, get, create, update, append, delete, claim, release). Claim tasks before working on them to avoid conflicts, and close them when complete.",
 		description:
-			`Manage file-based todos in ${todosDirLabel} (central per-project storage by default; list, list-all, get, create, update, append, delete, claim, release). ` +
+			"Manage file-based todos in the central per-project pi todo store (list, list-all, get, create, update, append, delete, claim, release). " +
 			"Title is the short summary; body is long-form markdown notes (update replaces, append adds). " +
 			"Todo ids are shown as TODO-<hex>; id parameters accept TODO-<hex> or the raw hex filename. " +
 			"Claim tasks before working on them to avoid conflicts, and close them when complete.",
@@ -1824,7 +1814,8 @@ export default function todosExtension(pi: ExtensionAPI) {
 	pi.registerCommand("todos", {
 		description: "List todos from the central per-project pi todo store",
 		getArgumentCompletions: async (argumentPrefix: string) => {
-			const todos = await listTodos(await resolveTodosDir(process.cwd()));
+			if (!currentCwd) return null;
+			const todos = await listTodos(await resolveTodosDir(currentCwd));
 			if (!todos.length) return null;
 			const matches = filterTodos(todos, argumentPrefix);
 			if (!matches.length) return null;

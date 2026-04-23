@@ -752,10 +752,11 @@ async function handleCommand(
 			return;
 		}
 
-		// Access internal session manager to rewind (type assertion to access non-readonly methods)
+		// Session storage is append-only. "Clear" rewinds the active leaf back to the
+		// root entry so future appends start from the beginning of the session again.
 		try {
-			const sessionManager = ctx.sessionManager as unknown as { rewindTo(id: string): void };
-			sessionManager.rewindTo(firstEntryId);
+			const sessionManager = ctx.sessionManager as unknown as { branch(id: string): void };
+			sessionManager.branch(firstEntryId);
 			respond(true, "clear", { cleared: true, targetId: firstEntryId });
 		} catch (error) {
 			respond(false, "clear", undefined, error instanceof Error ? error.message : "Clear failed");
