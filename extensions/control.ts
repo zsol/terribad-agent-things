@@ -23,14 +23,15 @@
  *   the current session.
  *
  * RPC Protocol:
- *   Commands are newline-delimited JSON objects with a `type` field:
- *   - { type: "send", message: "...", mode?: "steer"|"follow_up" }
- *   - { type: "get_message" }
- *   - { type: "get_summary" }
- *   - { type: "clear", summarize?: boolean }
- *   - { type: "abort" }
- *   - { type: "reload" }
- *   - { type: "subscribe", event: "turn_end"|"message_start"|"message_end"|"tool_execution_start"|"tool_execution_end" }
+ *   Commands are newline-delimited JSON objects with a `type` field and the
+ *   per-session `authToken` from `~/.pi/session-control/<session-id>.auth.json`:
+ *   - { type: "send", authToken: "...", message: "...", mode?: "steer"|"follow_up" }
+ *   - { type: "get_message", authToken: "..." }
+ *   - { type: "get_summary", authToken: "..." }
+ *   - { type: "clear", authToken: "...", summarize?: boolean }
+ *   - { type: "abort", authToken: "..." }
+ *   - { type: "reload", authToken: "..." }
+ *   - { type: "subscribe", authToken: "...", event: "turn_end"|"message_start"|"message_end"|"tool_execution_start"|"tool_execution_end" }
  *
  *   Responses are JSON objects with { type: "response", command, success, data?, error? }
  *   Events are JSON objects with { type: "event", event, data?, subscriptionId? }
@@ -42,6 +43,7 @@ import { complete, type Model, type Api, type UserMessage, type TextContent } fr
 import { StringEnum } from "@mariozechner/pi-ai";
 import { Box, Container, Markdown, Spacer, Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
+import * as crypto from "node:crypto";
 import { promises as fs } from "node:fs";
 import * as net from "node:net";
 import * as os from "node:os";
@@ -50,6 +52,12 @@ import * as path from "node:path";
 const CONTROL_FLAG = "session-control";
 const CONTROL_DIR = path.join(os.homedir(), ".pi", "session-control");
 const SOCKET_SUFFIX = ".sock";
+const AUTH_SUFFIX = ".auth.json";
+const CONTROL_DIR_MODE = 0o700;
+const SOCKET_MODE = 0o600;
+const SOCKET_UMASK = 0o077;
+const AUTH_FILE_MODE = 0o600;
+const AUTH_TOKEN_BYTES = 32;
 const SESSION_MESSAGE_TYPE = "session-message";
 const SENDER_INFO_PATTERN = /<sender_info>[\s\S]*?<\/sender_info>/g;
 
@@ -74,43 +82,41 @@ interface RpcEvent {
 }
 
 // Unified command structure
-interface RpcSendCommand {
+interface RpcBaseCommand {
+	id?: string;
+	authToken?: string;
+}
+
+interface RpcSendCommand extends RpcBaseCommand {
 	type: "send";
 	message: string;
 	mode?: "steer" | "follow_up";
-	id?: string;
 }
 
-interface RpcGetMessageCommand {
+interface RpcGetMessageCommand extends RpcBaseCommand {
 	type: "get_message";
-	id?: string;
 }
 
-interface RpcGetSummaryCommand {
+interface RpcGetSummaryCommand extends RpcBaseCommand {
 	type: "get_summary";
-	id?: string;
 }
 
-interface RpcClearCommand {
+interface RpcClearCommand extends RpcBaseCommand {
 	type: "clear";
 	summarize?: boolean;
-	id?: string;
 }
 
-interface RpcAbortCommand {
+interface RpcAbortCommand extends RpcBaseCommand {
 	type: "abort";
-	id?: string;
 }
 
-interface RpcReloadCommand {
+interface RpcReloadCommand extends RpcBaseCommand {
 	type: "reload";
-	id?: string;
 }
 
-interface RpcSubscribeCommand {
+interface RpcSubscribeCommand extends RpcBaseCommand {
 	type: "subscribe";
 	event: "turn_end" | "message_start" | "message_end" | "tool_execution_start" | "tool_execution_end";
-	id?: string;
 }
 
 type RpcCommand =
@@ -136,11 +142,19 @@ type SubscribableEvent = "turn_end" | "message_start" | "message_end" | "tool_ex
 interface SocketState {
 	server: net.Server | null;
 	socketPath: string | null;
+	authToken: string | null;
 	context: ExtensionContext | null;
 	alias: string | null;
 	aliasTimer: ReturnType<typeof setInterval> | null;
 	turnEndSubscriptions: EventSubscription[];
 	eventSubscriptions: Map<SubscribableEvent, EventSubscription[]>;
+}
+
+interface AuthMetadata {
+	sessionId: string;
+	token: string;
+	pid: number;
+	createdAt: string;
 }
 
 // ============================================================================
@@ -197,6 +211,17 @@ function getSocketPath(sessionId: string): string {
 	return path.join(CONTROL_DIR, `${sessionId}${SOCKET_SUFFIX}`);
 }
 
+function getAuthPath(sessionId: string): string {
+	return path.join(CONTROL_DIR, `${sessionId}${AUTH_SUFFIX}`);
+}
+
+function getSessionIdFromSocketPath(socketPath: string): string | null {
+	const base = path.basename(socketPath);
+	if (!base.endsWith(SOCKET_SUFFIX)) return null;
+	const sessionId = base.slice(0, -SOCKET_SUFFIX.length);
+	return isSafeSessionId(sessionId) ? sessionId : null;
+}
+
 function isSafeSessionId(sessionId: string): boolean {
 	return !sessionId.includes("/") && !sessionId.includes("\\") && !sessionId.includes("..") && sessionId.length > 0;
 }
@@ -217,7 +242,81 @@ function getSessionAlias(ctx: ExtensionContext): string | null {
 }
 
 async function ensureControlDir(): Promise<void> {
-	await fs.mkdir(CONTROL_DIR, { recursive: true });
+	await fs.mkdir(CONTROL_DIR, { recursive: true, mode: CONTROL_DIR_MODE });
+	const stats = await fs.lstat(CONTROL_DIR);
+	if (!stats.isDirectory() || stats.isSymbolicLink()) {
+		throw new Error(`${CONTROL_DIR} must be a real directory`);
+	}
+	if (typeof process.getuid === "function" && stats.uid !== process.getuid()) {
+		throw new Error(`${CONTROL_DIR} must be owned by the current user`);
+	}
+	await fs.chmod(CONTROL_DIR, CONTROL_DIR_MODE);
+}
+
+function generateAuthToken(): string {
+	return crypto.randomBytes(AUTH_TOKEN_BYTES).toString("base64url");
+}
+
+function tokenMatches(expected: string | null, provided: string | undefined): boolean {
+	if (!expected || !provided) return false;
+	const expectedBuffer = Buffer.from(expected);
+	const providedBuffer = Buffer.from(provided);
+	return expectedBuffer.length === providedBuffer.length && crypto.timingSafeEqual(expectedBuffer, providedBuffer);
+}
+
+async function writeAuthMetadata(sessionId: string, token: string): Promise<void> {
+	const authPath = getAuthPath(sessionId);
+	const tmpPath = `${authPath}.${process.pid}.tmp`;
+	const metadata: AuthMetadata = {
+		sessionId,
+		token,
+		pid: process.pid,
+		createdAt: new Date().toISOString(),
+	};
+	await fs.rm(tmpPath, { force: true });
+	const handle = await fs.open(tmpPath, "wx", AUTH_FILE_MODE);
+	try {
+		await handle.writeFile(JSON.stringify(metadata, null, 2), "utf8");
+	} finally {
+		await handle.close();
+	}
+	await fs.chmod(tmpPath, AUTH_FILE_MODE);
+	await fs.rename(tmpPath, authPath);
+	await fs.chmod(authPath, AUTH_FILE_MODE);
+}
+
+async function readAuthToken(sessionId: string): Promise<string | null> {
+	if (!isSafeSessionId(sessionId)) return null;
+	try {
+		const authPath = getAuthPath(sessionId);
+		const stats = await fs.lstat(authPath);
+		if (!stats.isFile() || stats.isSymbolicLink()) return null;
+		if (typeof process.getuid === "function" && stats.uid !== process.getuid()) return null;
+		if ((stats.mode & 0o077) !== 0) return null;
+
+		const raw = await fs.readFile(authPath, "utf8");
+		const parsed = JSON.parse(raw) as Partial<AuthMetadata> | null;
+		if (!parsed || parsed.sessionId !== sessionId || typeof parsed.token !== "string") return null;
+		return parsed.token;
+	} catch {
+		return null;
+	}
+}
+
+async function removeAuthMetadata(sessionId: string | null): Promise<void> {
+	if (!sessionId || !isSafeSessionId(sessionId)) return;
+	try {
+		await fs.unlink(getAuthPath(sessionId));
+	} catch (error) {
+		if (isErrnoException(error) && error.code !== "ENOENT") {
+			throw error;
+		}
+	}
+}
+
+async function removeAuthForSocket(socketPath: string | null): Promise<void> {
+	if (!socketPath) return;
+	await removeAuthMetadata(getSessionIdFromSocketPath(socketPath));
 }
 
 async function removeSocket(socketPath: string | null): Promise<void> {
@@ -597,6 +696,12 @@ async function handleCommand(
 		return;
 	}
 
+	const providedAuthToken = typeof command.authToken === "string" ? command.authToken : undefined;
+	if (!tokenMatches(state.authToken, providedAuthToken)) {
+		writeResponse(socket, { type: "response", command: command.type, success: false, error: "Unauthorized", id });
+		return;
+	}
+
 	void syncAlias(state, ctx);
 
 	// Abort
@@ -844,13 +949,42 @@ async function createServer(pi: ExtensionAPI, state: SocketState, socketPath: st
 		});
 	});
 
-	// Wait for server to start listening, with error handling
+	// Wait for server to start listening, with error handling. Use a restrictive
+	// process-wide umask while binding so the socket is not briefly created
+	// world-accessible; restore it on every success/error path below.
 	await new Promise<void>((resolve, reject) => {
-		server.once("error", reject);
-		server.listen(socketPath, () => {
-			server.removeListener("error", reject);
-			resolve();
-		});
+		let previousUmask: number | null = null;
+		let umaskRestored = false;
+		const restoreUmask = () => {
+			if (previousUmask === null || umaskRestored) return;
+			process.umask(previousUmask);
+			umaskRestored = true;
+		};
+		const rejectWithCleanup = (error: Error) => {
+			restoreUmask();
+			reject(error);
+		};
+
+		server.once("error", rejectWithCleanup);
+		try {
+			previousUmask = process.umask(SOCKET_UMASK);
+			server.listen(socketPath, () => {
+				restoreUmask();
+				fs.chmod(socketPath, SOCKET_MODE)
+					.then(() => {
+						server.removeListener("error", rejectWithCleanup);
+						resolve();
+					})
+					.catch((error) => {
+						server.removeListener("error", rejectWithCleanup);
+						server.close(() => reject(error));
+					});
+			});
+		} catch (error) {
+			server.removeListener("error", rejectWithCleanup);
+			restoreUmask();
+			reject(error instanceof Error ? error : new Error(String(error)));
+		}
 	});
 
 	return server;
@@ -867,6 +1001,12 @@ async function sendRpcCommand(
 	options: RpcClientOptions = {},
 ): Promise<{ response: RpcResponse; event?: { message?: ExtractedMessage; turnIndex?: number } }> {
 	const { timeout = 5000, waitForEvent } = options;
+	const sessionId = getSessionIdFromSocketPath(socketPath);
+	const authToken = sessionId ? await readAuthToken(sessionId) : null;
+	if (!authToken) {
+		throw new Error("Missing session auth token");
+	}
+	const authenticatedCommand = { ...command, authToken } as RpcCommand;
 
 	return new Promise((resolve, reject) => {
 		const socket = net.createConnection(socketPath);
@@ -885,11 +1025,11 @@ async function sendRpcCommand(
 		};
 
 		socket.on("connect", () => {
-			socket.write(`${JSON.stringify(command)}\n`);
+			socket.write(`${JSON.stringify(authenticatedCommand)}\n`);
 
 			// If waiting for turn_end, also subscribe
 			if (waitForEvent === "turn_end") {
-				const subscribeCmd: RpcSubscribeCommand = { type: "subscribe", event: "turn_end" };
+				const subscribeCmd: RpcSubscribeCommand = { type: "subscribe", event: "turn_end", authToken };
 				socket.write(`${JSON.stringify(subscribeCmd)}\n`);
 			}
 		});
@@ -959,10 +1099,21 @@ async function startControlServer(pi: ExtensionAPI, state: SocketState, ctx: Ext
 
 	await stopControlServer(state);
 	await removeSocket(socketPath);
+	await removeAuthMetadata(sessionId);
 
+	const authToken = generateAuthToken();
+	await writeAuthMetadata(sessionId, authToken);
 	state.context = ctx;
 	state.socketPath = socketPath;
-	state.server = await createServer(pi, state, socketPath);
+	state.authToken = authToken;
+	try {
+		state.server = await createServer(pi, state, socketPath);
+	} catch (error) {
+		state.authToken = null;
+		await removeAuthMetadata(sessionId).catch(() => undefined);
+		await removeSocket(socketPath).catch(() => undefined);
+		throw error;
+	}
 	state.alias = null;
 	await syncAlias(state, ctx);
 }
@@ -970,19 +1121,23 @@ async function startControlServer(pi: ExtensionAPI, state: SocketState, ctx: Ext
 async function stopControlServer(state: SocketState): Promise<void> {
 	if (!state.server) {
 		await removeAliasesForSocket(state.socketPath);
+		await removeAuthForSocket(state.socketPath);
 		await removeSocket(state.socketPath);
 		state.socketPath = null;
+		state.authToken = null;
 		state.alias = null;
 		return;
 	}
 
 	const socketPath = state.socketPath;
 	state.socketPath = null;
+	state.authToken = null;
 	state.turnEndSubscriptions = [];
 	state.eventSubscriptions.clear();
 	await new Promise<void>((resolve) => state.server?.close(() => resolve()));
 	state.server = null;
 	await removeAliasesForSocket(socketPath);
+	await removeAuthForSocket(socketPath);
 	await removeSocket(socketPath);
 	state.alias = null;
 }
@@ -1019,6 +1174,7 @@ export default function (pi: ExtensionAPI) {
 	const state: SocketState = {
 		server: null,
 		socketPath: null,
+		authToken: null,
 		context: null,
 		alias: null,
 		aliasTimer: null,
