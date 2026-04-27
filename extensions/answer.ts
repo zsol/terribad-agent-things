@@ -67,33 +67,11 @@ Example output:
   ]
 }`;
 
-const EXTRACTION_MODEL_CANDIDATES = [
-	{ provider: "openai-codex", modelId: "gpt-5.4-mini" },
-	{ provider: "openai", modelId: "gpt-5.4-mini" },
-	{ provider: "openai-codex", modelId: "gpt-5.4" },
-	{ provider: "openai", modelId: "gpt-5.4" },
-] as const;
-
 /**
- * Prefer fast OpenAI models for extraction when available, otherwise fallback to the current model.
+ * Use the active model for extraction to avoid silently sending conversation
+ * content to a different provider than the user selected for the session.
  */
-async function selectExtractionModel(
-	currentModel: Model<Api>,
-	modelRegistry: {
-		find: (provider: string, modelId: string) => Model<Api> | undefined;
-		getApiKeyAndHeaders: (model: Model<Api>) => Promise<{ ok: boolean }>;
-	},
-): Promise<Model<Api>> {
-	for (const candidate of EXTRACTION_MODEL_CANDIDATES) {
-		const model = modelRegistry.find(candidate.provider, candidate.modelId);
-		if (!model) continue;
-
-		const auth = await modelRegistry.getApiKeyAndHeaders(model);
-		if (auth.ok) {
-			return model;
-		}
-	}
-
+function selectExtractionModel(currentModel: Model<Api>): Model<Api> {
 	return currentModel;
 }
 
@@ -446,8 +424,8 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			// Select the best available OpenAI model for extraction.
-			const extractionModel = await selectExtractionModel(ctx.model, ctx.modelRegistry);
+			// Use the active model/provider for extraction to avoid implicit data sharing.
+			const extractionModel = selectExtractionModel(ctx.model);
 
 			// Run extraction with loader UI
 			const extractionResult = await ctx.ui.custom<ExtractionResult | null>((tui, theme, _kb, done) => {

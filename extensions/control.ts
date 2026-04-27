@@ -161,13 +161,6 @@ interface AuthMetadata {
 // Summarization
 // ============================================================================
 
-const SUMMARIZATION_MODEL_CANDIDATES = [
-	{ provider: "openai-codex", modelId: "gpt-5.4-mini" },
-	{ provider: "openai", modelId: "gpt-5.4-mini" },
-	{ provider: "openai-codex", modelId: "gpt-5.4" },
-	{ provider: "openai", modelId: "gpt-5.4" },
-] as const;
-
 const SUMMARIZATION_SYSTEM_PROMPT = `You are a conversation summarizer. Create concise, accurate summaries that preserve key information, decisions, and outcomes.`;
 
 const TURN_SUMMARY_PROMPT = `Summarize what happened in this conversation since the last user prompt. Focus on:
@@ -179,21 +172,7 @@ const TURN_SUMMARY_PROMPT = `Summarize what happened in this conversation since 
 
 Be concise but comprehensive. Preserve exact file paths, function names, and error messages.`;
 
-async function selectSummarizationModel(
-	currentModel: Model<Api> | undefined,
-	modelRegistry: {
-		find: (provider: string, modelId: string) => Model<Api> | undefined;
-		getApiKeyAndHeaders: (model: Model<Api>) => Promise<{ ok: boolean }>;
-	},
-): Promise<Model<Api> | undefined> {
-	for (const candidate of SUMMARIZATION_MODEL_CANDIDATES) {
-		const model = modelRegistry.find(candidate.provider, candidate.modelId);
-		if (!model) continue;
-
-		const auth = await modelRegistry.getApiKeyAndHeaders(model);
-		if (auth.ok) return model;
-	}
-
+function selectSummarizationModel(currentModel: Model<Api> | undefined): Model<Api> | undefined {
 	return currentModel;
 }
 
@@ -779,7 +758,7 @@ async function handleCommand(
 			return;
 		}
 
-		const model = await selectSummarizationModel(ctx.model, ctx.modelRegistry);
+		const model = selectSummarizationModel(ctx.model);
 		if (!model) {
 			respond(false, "get_summary", undefined, "No model available for summarization");
 			return;

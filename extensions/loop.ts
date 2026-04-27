@@ -32,13 +32,6 @@ const LOOP_PRESETS = [
 
 const LOOP_STATE_ENTRY = "loop-state";
 
-const SUMMARY_MODEL_CANDIDATES = [
-	{ provider: "openai-codex", modelId: "gpt-5.4-mini" },
-	{ provider: "openai", modelId: "gpt-5.4-mini" },
-	{ provider: "openai-codex", modelId: "gpt-5.4" },
-	{ provider: "openai", modelId: "gpt-5.4" },
-] as const;
-
 const SUMMARY_SYSTEM_PROMPT = `You summarize loop breakout conditions for a status widget.
 Return a concise phrase (max 6 words) that says when the loop should stop.
 Use plain text only, no quotes, no punctuation, no prefix.
@@ -93,16 +86,6 @@ function getConditionText(mode: LoopMode, condition?: string): string {
 async function selectSummaryModel(
 	ctx: ExtensionContext,
 ): Promise<{ model: Model<Api>; apiKey?: string; headers?: Record<string, string> } | null> {
-	for (const candidate of SUMMARY_MODEL_CANDIDATES) {
-		const model = ctx.modelRegistry.find(candidate.provider, candidate.modelId);
-		if (!model) continue;
-
-		const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-		if (auth.ok) {
-			return { model, apiKey: auth.apiKey, headers: auth.headers };
-		}
-	}
-
 	if (!ctx.model) return null;
 
 	const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
