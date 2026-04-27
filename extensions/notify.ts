@@ -14,9 +14,16 @@ import { Markdown, type MarkdownTheme } from "@mariozechner/pi-tui";
 /**
  * Send a desktop notification via OSC 777 escape sequence.
  */
+const OSC_UNSAFE_CONTROL_CHARS = /[\x00-\x1f\x7f-\x9f]/g;
+
+const sanitizeOscField = (text: string): string =>
+	text.replace(OSC_UNSAFE_CONTROL_CHARS, " ").replace(/\s+/g, " ").trim();
+
 const notify = (title: string, body: string): void => {
 	// OSC 777 format: ESC ] 777 ; notify ; title ; body BEL
-	process.stdout.write(`\x1b]777;notify;${title};${body}\x07`);
+	const safeTitle = sanitizeOscField(title);
+	const safeBody = sanitizeOscField(body);
+	process.stdout.write(`\x1b]777;notify;${safeTitle};${safeBody}\x07`);
 };
 
 const isTextPart = (part: unknown): part is { type: "text"; text: string } =>
