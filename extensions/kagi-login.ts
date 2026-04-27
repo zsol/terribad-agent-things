@@ -5,8 +5,9 @@
  * browser session with Kagi using the private session URL stored in 1Password,
  * without ever exposing the secret token in any LLM-visible output.
  *
- * The URL is fetched from 1Password and passed directly to agent-browser via
- * pi.exec(), bypassing the browser tool (and therefore the LLM context) entirely.
+ * The URL is fetched from 1Password and written to a short-lived private local
+ * redirect page. agent-browser opens that file URL so the secret URL is not
+ * exposed through tool arguments or the LLM context.
  *
  * Usage:
  * - LLM: call the `kagi_login` tool before performing searches
@@ -15,12 +16,79 @@
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const OP_ITEM_DEFAULT = "kagi private url";
+const REDIRECT_FILE_MODE = 0o600;
 
 interface KagiConfig {
 	opAccount?: string;
 	opItem?: string;
+}
+
+function redactSecrets(text: string, secrets: string[] = []): string {
+	let redacted = text;
+	for (const secret of secrets) {
+		if (!secret) continue;
+		redacted = redacted.split(secret).join("[REDACTED]");
+	}
+	return redacted.replace(/https:\/\/[^\s"'<>]*\bkagi\.com\b[^\s"'<>]*/gi, "[REDACTED_KAGI_URL]");
+}
+
+function validateKagiUrl(rawUrl: string): string | { error: string } {
+	try {
+		const url = new URL(rawUrl);
+		const hostname = url.hostname.toLowerCase();
+		if (url.protocol !== "https:" || (hostname !== "kagi.com" && !hostname.endsWith(".kagi.com"))) {
+			return { error: "1Password item did not contain an HTTPS Kagi URL." };
+		}
+		return url.toString();
+	} catch {
+		return { error: "1Password item did not contain a valid Kagi URL." };
+	}
+}
+
+function parseJson(text: string): any | null {
+	try {
+		return JSON.parse(text);
+	} catch {
+		return null;
+	}
+}
+
+async function createPrivateRedirectPage(privateUrl: string): Promise<{ dir: string; fileUrl: string }> {
+	const dir = await mkdtemp(join(tmpdir(), "pi-kagi-login-"));
+	const filePath = join(dir, "login.html");
+	const redirectTarget = JSON.stringify(privateUrl).replace(/<\//g, "<\\/");
+	const html = [
+		"<!doctype html>",
+		'<meta charset="utf-8">',
+		'<meta name="referrer" content="no-referrer">',
+		"<title>Kagi login redirect</title>",
+		`<script>location.replace(${redirectTarget});</script>`,
+		"Redirecting to Kagi...",
+	].join("\n");
+	await writeFile(filePath, html, { encoding: "utf8", mode: REDIRECT_FILE_MODE });
+	return { dir, fileUrl: pathToFileURL(filePath).toString() };
+}
+
+async function waitForRedirectToLeaveFileUrl(
+	pi: ExtensionAPI,
+	redirectFileUrl: string,
+	signal?: AbortSignal,
+): Promise<boolean> {
+	for (let attempt = 0; attempt < 10; attempt++) {
+		await pi.exec("agent-browser", ["wait", "500"], { signal, timeout: 2000 }).catch(() => undefined);
+		const result = await pi.exec("agent-browser", ["--json", "get", "url"], { signal, timeout: 5000 }).catch(() => null);
+		if (!result || result.code !== 0) continue;
+		const parsed = parseJson(result.stdout);
+		const currentUrl = typeof parsed?.data?.url === "string" ? parsed.data.url : undefined;
+		if (currentUrl && currentUrl !== redirectFileUrl && !currentUrl.startsWith("file:")) return true;
+	}
+	return false;
 }
 
 export default function kagiLoginExtension(pi: ExtensionAPI) {
@@ -65,17 +133,39 @@ export default function kagiLoginExtension(pi: ExtensionAPI) {
 			};
 		}
 
-		const url = opResult.stdout.trim();
+		const privateUrlResult = validateKagiUrl(opResult.stdout.trim());
+		if (typeof privateUrlResult !== "string") {
+			return { success: false, error: privateUrlResult.error };
+		}
+		const privateUrl = privateUrlResult;
 
 		// Navigate using the same agent-browser CLI that the browser tool uses.
-		// The URL never appears in any LLM-visible output.
-		const browserResult = await pi.exec("agent-browser", ["open", url], { signal });
+		// Open a short-lived local redirect file so the private URL never appears
+		// in process argv, command renderers, or LLM-visible output.
+		let redirectDir: string | undefined;
+		try {
+			const redirect = await createPrivateRedirectPage(privateUrl);
+			redirectDir = redirect.dir;
+			const browserResult = await pi.exec("agent-browser", ["open", redirect.fileUrl], { signal });
 
-		if (browserResult.code !== 0) {
-			return {
-				success: false,
-				error: `agent-browser failed to open the login URL: ${browserResult.stderr.trim()}`,
-			};
+			if (browserResult.code !== 0) {
+				const errorText = redactSecrets(browserResult.stderr.trim() || browserResult.stdout.trim(), [privateUrl]);
+				return {
+					success: false,
+					error: `agent-browser failed to open the login redirect: ${errorText}`,
+				};
+			}
+
+			if (!(await waitForRedirectToLeaveFileUrl(pi, redirect.fileUrl, signal))) {
+				return {
+					success: false,
+					error: "agent-browser did not complete the Kagi login redirect.",
+				};
+			}
+		} finally {
+			if (redirectDir) {
+				await rm(redirectDir, { recursive: true, force: true }).catch(() => undefined);
+			}
 		}
 
 		return { success: true };
